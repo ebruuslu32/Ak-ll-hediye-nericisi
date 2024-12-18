@@ -3,6 +3,7 @@ import google.generativeai as genai
 import os
 import requests
 from bs4 import BeautifulSoup
+import re
 
 GEMINI_ANAHTARI = "AIzaSyC5_ActnFp7AW2P2r05nZVwHEP7wa8JN5A"
 
@@ -19,7 +20,7 @@ def get_gift_suggestions(recipient_profile, interests, occasion, budget):
     Bütçe: {budget} TL
 
     Lütfen şunları sağla:
-    1. Önerilen hediye fikirleri
+    1. Önerilen hediye fikirleri (en az 3 farklı ürün)
     2. Hediye önerisinin gerekçesi (kişinin profiline ve ilgi alanlarına uygunluğu)
     3. Hediye için yaklaşık fiyat aralıkları
     """
@@ -32,14 +33,26 @@ def search_products(product_names):
         product = product.strip()
         search_query = product + " satın al"
         search_url = f"https://www.google.com/search?q={search_query}&tbm=shop"
-        headers = {"User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36"}
-        response = requests.get(search_url, headers=headers)
+        headers = {
+            "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36"
+        }
+        try:
+            response = requests.get(search_url, headers=headers, timeout=10)  # Timeout eklendi
 
-        if response.status_code == 200:
-            soup = BeautifulSoup(response.content, 'html.parser')
-            links = soup.find_all('a', class_='shntl')
-            if links:
-                product_links[product] = links[0]['href']
+            if response.status_code == 200:
+                soup = BeautifulSoup(response.content, 'html.parser')
+                links = soup.find_all('a', class_='shntl')
+                if links:
+                    for link in links:
+                        href = link.get('href')
+                        if href and href.startswith("https://"):  # Sadece tam linkler
+                           product_links[product] = href
+                           break # ilk bulduğu geçerli linki al
+            else:
+               st.warning(f"Hata oluştu, HTTP Status Code: {response.status_code} - {search_query}")
+        except requests.exceptions.RequestException as e:
+            st.warning(f"İstek hatası oluştu: {e} - {search_query}")
+
     return product_links
 
 st.set_page_config(page_title="Akıllı Hediye Önerici", page_icon="🎁", layout="wide")
@@ -70,8 +83,12 @@ if st.button("Hediye Önerisi Al") and alici_profili and ilgi_alanlari and hediy
         if product_names:
             product_links = search_products(product_names)
             st.markdown("### Ürün Satın Alma Bağlantıları")
-            for product, link in product_links.items():
-                st.markdown(f"- [{product}]({link})")
+            if product_links:
+                for product, link in product_links.items():
+                    st.markdown(f"- [{product}]({link})")
+            else:
+                st.warning("Ürünler için satın alma linkleri bulunamadı.")
+
 
 
 st.sidebar.markdown("""
